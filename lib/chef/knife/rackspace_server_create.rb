@@ -258,6 +258,12 @@ class Chef
         :description => "A file containing the secret key to use to encrypt data bag item values",
         :proc => Proc.new { |sf| Chef::Config[:knife][:secret_file] = sf }
 
+      option :volume_name,
+        :long => "--volume-name NAME",
+        :description => "Create a Cloud Block Storage device with the specified name",
+        :proc => Proc.new { |name| Chef::Config[:knife][:volume_name] = name },
+        :default => nil
+
       option :bootstrap_vault_file,
         :long        => '--bootstrap-vault-file VAULT_FILE',
         :description => 'A JSON file with a list of vault(s) and item(s) to be updated'
@@ -276,6 +282,24 @@ class Chef
           Chef::Config[:knife][:bootstrap_vault_item][vault].push(item)
           Chef::Config[:knife][:bootstrap_vault_item]
         }
+
+      option :volume_size,
+        :long => "--volume-size SIZE",
+        :description => "Amount of storage (in GB, 100-1000) to allocate for the Cloud Block Storage device (defaults to 100)",
+        :proc => Proc.new { |size| Chef::Config[:knife][:volume_size] = size },
+        :default => 100
+
+      option :volume_type,
+        :long => "--volume-type {SSD|SATA}",
+        :description => "Type of volume for the Cloud Block Storage device (defaults to SATA)",
+        :proc => Proc.new { |voltype| Chef::Config[:knife][:volume_type] = voltype },
+        :default => 'SATA'
+
+      option :device_name,
+        :long => "--device-name NAME",
+        :description => "Name of device for attached Cloug Block Storage volume (Valid device names are `/dev/xvd[a-p]`, default is /dev/xvdb)",
+        :proc => Proc.new { |name| Chef::Config[:knife][:device_name] = name },
+        :default => '/dev/xvdb'
 
       def load_winrm_deps
         require 'winrm'
@@ -445,7 +469,6 @@ class Chef
         msg_pair("RackConnect V3", locate_config_value(:rackconnect_v3_network_id) ? 'yes' : 'no')
         msg_pair("ServiceLevel Wait", rackspace_servicelevel_wait ? 'yes' : 'no')
         msg_pair("SSH Key", locate_config_value(:rackspace_ssh_keypair))
-
         # wait for it to be ready to do stuff
         begin
           server.wait_for(Integer(locate_config_value(:server_create_timeout))) {
@@ -500,6 +523,23 @@ class Chef
         msg_pair("Metadata", server.metadata.all)
 
         bootstrap_ip_address = ip_address(server, locate_config_value(:bootstrap_network))
+
+        if Chef::Config[:knife][:volume_name]
+          Chef::Log.debug("Setting up block storage")
+          Chef::Log.debug("Volume size: #{Chef::Config[:knife][:volume_size]}")
+          Chef::Log.debug("Volume name: #{Chef::Config[:knife][:volume_name]}")
+          Chef::Log.debug("Volume type: #{Chef::Config[:knife][:volume_type]}")
+          Chef::Log.debug("Device name: #{Chef::Config[:knife][:device_name]}")
+          volume_size = (Chef::Config[:knife][:volume_size] || 100).to_i
+          volume_name = Chef::Config[:knife][:volume_name]
+          volume_type_name = Chef::Config[:knife][:volume_type] || 'SATA'
+          new_volume = block_storage_connection.volumes.create(:size => volume_size, :display_name => volume_name, :volume_type => volume_type_name)
+          print "\n#{ui.color("Waiting storage", :magenta)}"
+
+          new_volume.wait_for(Integer(locate_config_value(:server_create_timeout))) { print "."; ready? }
+
+          server.attach_volume new_volume.id, (Chef::Config[:knife][:device_name] || '/dev/xvdb')
+        end
 
         Chef::Log.debug("Bootstrap IP Address #{bootstrap_ip_address}")
         if bootstrap_ip_address.nil?
