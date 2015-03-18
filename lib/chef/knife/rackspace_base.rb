@@ -204,7 +204,7 @@ class Chef
       end
 
       def msg_pair(label, value, color=:cyan)
-        if value && !value.to_s.empty?
+        if value && !value.to_s.empty? && !testing?
           puts "#{ui.color(label, color)}: #{value}"
         end
       end
@@ -256,6 +256,7 @@ class Chef
 
       def v2_ip_address(server, network)
         network_ips = server.addresses[network]
+
         extract_ipv4_address(network_ips) if network_ips
       end
 
@@ -267,6 +268,17 @@ class Chef
         address = ip_addresses.select { |ip| ip["version"] == 4 }.first
         address ? address["addr"] : ""
       end
+
+      def testing?
+        defined?(TESTING) && TESTING
+      end
+      private :testing?
+
+      def stdout(value)
+        puts value unless testing?
+      end
+      private :stdout
+
     end
   end
 end
