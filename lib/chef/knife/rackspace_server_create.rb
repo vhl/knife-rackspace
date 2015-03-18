@@ -472,7 +472,7 @@ class Chef
         # wait for it to be ready to do stuff
         begin
           server.wait_for(Integer(locate_config_value(:server_create_timeout))) {
-            print ".";
+            stdout ".";
             Chef::Log.debug("#{progress}%")
 
             if rackconnect_wait and rackspace_servicelevel_wait
@@ -499,9 +499,9 @@ class Chef
 
         msg_pair("Metadata", server.metadata)
 
-        print "\n#{ui.color("Waiting server", :magenta)}"
+        stdout("\n#{ui.color("Waiting server", :magenta)}")
 
-        puts("\n")
+        stdout("\n")
 
         if locate_config_value(:rackconnect_v3_network_id)
           print "\n#{ui.color("Setting up RackconnectV3 network and IPs", :magenta)}"
@@ -534,9 +534,8 @@ class Chef
           volume_name = Chef::Config[:knife][:volume_name]
           volume_type_name = Chef::Config[:knife][:volume_type] || 'SATA'
           new_volume = block_storage_connection.volumes.create(:size => volume_size, :display_name => volume_name, :volume_type => volume_type_name)
-          print "\n#{ui.color("Waiting storage", :magenta)}"
-
-          new_volume.wait_for(Integer(locate_config_value(:server_create_timeout))) { print "."; ready? }
+          stdout("\n#{ui.color("Waiting storage", :magenta)}")
+          new_volume.wait_for(Integer(locate_config_value(:server_create_timeout))) { stdout "."; ready? }
 
           server.attach_volume new_volume.id, (Chef::Config[:knife][:device_name] || '/dev/xvdb')
         end
@@ -548,16 +547,16 @@ class Chef
         end
 
         if locate_config_value(:bootstrap_protocol) == 'winrm'
-          print "\n#{ui.color("Waiting for winrm", :magenta)}"
-          print(".") until tcp_test_winrm(bootstrap_ip_address, locate_config_value(:winrm_port))
+          stdout "\n#{ui.color("Waiting for winrm", :magenta)}"
+          stdout(".") until tcp_test_winrm(bootstrap_ip_address, locate_config_value(:winrm_port))
           bootstrap_for_windows_node(server, bootstrap_ip_address).run
         else
-          print "\n#{ui.color("Waiting for sshd", :magenta)}"
+          stdout "\n#{ui.color("Waiting for sshd", :magenta)}"
           tcp_test_ssh(server, bootstrap_ip_address)
           bootstrap_for_node(server, bootstrap_ip_address).run
         end
 
-        puts "\n"
+        stdout "\n"
         msg_pair("Instance ID", server.id)
         msg_pair("Host ID", server.host_id)
         msg_pair("Name", server.name)
@@ -570,7 +569,7 @@ class Chef
         msg_pair("Private IP Address", ip_address(server, 'private'))
         msg_pair("Password", server.password)
         msg_pair("Environment", config[:environment] || '_default')
-        msg_pair("Run List", config[:run_list].join(', '))
+        msg_pair("Run List", run_list.join(', '))
       end
 
       def setup_rackconnect_network!(server)
@@ -626,7 +625,7 @@ class Chef
 
       def bootstrap_common_params(bootstrap, server)
         bootstrap.config[:environment] = config[:environment]
-        bootstrap.config[:run_list] = config[:run_list]
+        bootstrap.config[:run_list] = run_list
         if version_one?
           bootstrap.config[:chef_node_name] = config[:chef_node_name] || server.id
         else
@@ -660,6 +659,12 @@ class Chef
       end
 
     end
+
+    def run_list
+      config[:run_list] || []
+    end
+    private :run_list
+
     #v2 servers require a name, random if chef_node_name is empty, empty if v1
     def get_node_name(chef_node_name)
       return chef_node_name unless chef_node_name.nil?
