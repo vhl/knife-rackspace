@@ -258,6 +258,11 @@ class Chef
         :description => "A file containing the secret key to use to encrypt data bag item values",
         :proc => Proc.new { |sf| Chef::Config[:knife][:secret_file] = sf }
 
+      option :volume_id,
+        :long => "--volume-id UUID",
+        :description => "UUID of a Cloud Block Storage volume to boot the server from",
+        :proc => Proc.new { |vol_id| Chef::Config[:knife][:cbs_volume_id] = vol_id.to_s }
+
       option :volume_name,
         :long => "--volume-name NAME",
         :description => "Create a Cloud Block Storage device with the specified name",
@@ -423,7 +428,9 @@ class Chef
         #
         # In the case we are trying to create one of these flavors, we should
         # swap out the image_id argument with the boot_image_id argument.
-        if flavor.disk == 0
+        if Chef::Config[:knife][:cbs_volume_id] # boot from specified volume
+          stdout("\n#{ui.color("Boot from existing Cloud Block Storage volume", :magenta)}")
+          msg_pair("CBS Volume ID:", Chef::Config[:knife][:cbs_volume_id])
           server_create_options[:image_id] = ''
           server_create_options[:boot_volume_id] = locate_config_value(:boot_volume_id)
           server_create_options[:boot_image_id] = locate_config_value(:image)
@@ -432,6 +439,11 @@ class Chef
             ui.error('Please specify exactly one of --boot-volume-id (-B) and --image (-I)')
             exit 1
           end
+        elsif Chef::Config[:knife][:volume_name] && Chef::Config[:knife][:image]  # create a new volume for the specified image with the specified name
+          stdout("\n#{ui.color("Boot from new Block Storage volume", :magenta)}")
+          msg_pair("CBS Source Image:", Chef::Config[:knife][:image])
+          server_create_options[:image_id] = ''
+          server_create_options[:boot_volume_id] = create_cbs_volume.id
         else
           server_create_options[:image_id] = locate_config_value(:image)
 
@@ -444,6 +456,11 @@ class Chef
         if locate_config_value(:bootstrap_protocol) == 'winrm'
           load_winrm_deps
         end
+
+        networks = get_networks(Chef::Config[:knife][:rackspace_networks])
+
+        rackconnect_wait = Chef::Config[:knife][:rackconnect_wait] || config[:rackconnect_wait]
+        rackspace_servicelevel_wait = Chef::Config[:knife][:rackspace_servicelevel_wait] || config[:rackspace_servicelevel_wait]
 
         server = connection.servers.new(server_create_options)
 
@@ -460,7 +477,7 @@ class Chef
         msg_pair("Host ID", server.host_id)
         msg_pair("Name", server.name)
         msg_pair("Flavor", server.flavor.name)
-        msg_pair("Image", server.image.name) if server.image
+        msg_pair("Image", (server.image && server.image.name) || 'None')
         msg_pair("Boot Image ID", server.boot_image_id) if server.boot_image_id
         msg_pair("Metadata", server.metadata.all)
         msg_pair("ConfigDrive", server.config_drive)
@@ -472,7 +489,7 @@ class Chef
         # wait for it to be ready to do stuff
         begin
           server.wait_for(Integer(locate_config_value(:server_create_timeout))) {
-            stdout ".";
+            print ".";
             Chef::Log.debug("#{progress}%")
 
             if rackconnect_wait and rackspace_servicelevel_wait
@@ -604,6 +621,27 @@ class Chef
           exit 1
         end
         content
+      end
+
+      def create_cbs_volume
+        Chef::Log.debug("Creating new cloud block storage volume")
+        Chef::Log.debug("Volume size: #{Chef::Config[:knife][:volume_size]}")
+        Chef::Log.debug("Volume name: #{Chef::Config[:knife][:volume_name]}")
+        Chef::Log.debug("Volume type: #{Chef::Config[:knife][:volume_type]}")
+        volume_size = (Chef::Config[:knife][:volume_size] || 100).to_i
+        volume_name = Chef::Config[:knife][:volume_name]
+        volume_type_name = Chef::Config[:knife][:volume_type] || 'SATA'
+        volume_opts = {size: volume_size, display_name: volume_name, volume_type: volume_type_name}
+        # if a knife image was specified, we're going to create this volume from that image.
+        # otherwise it will be a bare volume
+        volume_opts[:image_id] = Chef::Config[:knife][:image] if Chef::Config[:knife][:image]
+        new_volume = block_storage_connection.volumes.create(volume_opts)
+        stdout("\n#{ui.color("Waiting for Cloud Block Storage:", :magenta)}")
+
+        new_volume.wait_for(Integer(locate_config_value(:server_create_timeout))) { print "."; ready? }
+        stdout("\n#{ui.color("Cloud Block Storage volume created and available", :magenta)}")
+        msg_pair("Cloud Block Storage Volume Id:", new_volume.id)
+        new_volume
       end
 
       def bootstrap_for_node(server, bootstrap_ip_address)
