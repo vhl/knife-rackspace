@@ -302,7 +302,7 @@ class Chef
 
       option :device_name,
         :long => "--device-name NAME",
-        :description => "Name of device for attached Cloug Block Storage volume (Valid device names are `/dev/xvd[a-p]`, default is /dev/xvdb)",
+        :description => "Name of device for attached Cloud Block Storage volume (Valid device names are `/dev/xvd[a-p]`, default is /dev/xvdb)",
         :proc => Proc.new { |name| Chef::Config[:knife][:device_name] = name },
         :default => '/dev/xvdb'
 
@@ -334,6 +334,7 @@ class Chef
             tcp_test_ssh(server, bootstrap_ip)
           else
             ui.error "Unable to SSH into #{bootstrap_ip}"
+            puts __LINE__
             exit 1
           end
         end
@@ -343,6 +344,7 @@ class Chef
         dest, src = arg.split('=')
         unless dest && src
           ui.error "Unable to process file arguments #{arg}. The --file option requires both the destination on the remote machine as well as the local source be supplied using the form DESTINATION-PATH=SOURCE-PATH"
+            puts __LINE__
           exit 1
         end
         [dest, src]
@@ -354,6 +356,7 @@ class Chef
           content = File.read(filename)
         rescue Errno::ENOENT => e
           ui.error "Unable to read source file - #{filename}"
+            puts __LINE__
           exit 1
         end
         Base64.encode64(content)
@@ -412,18 +415,20 @@ class Chef
         }
 
         # Maybe deprecate this option at some point
+        config[:bootstrap_network] ||= 'public'
         config[:bootstrap_network] = 'private' if locate_config_value(:private_network)
 
         flavor_id = locate_config_value(:flavor)
         flavor = connection.flavors.get(flavor_id)
         if !flavor
           ui.error("Invalid Flavor ID: #{flavor_id}")
+            puts __LINE__
           exit 1
         else
           server_create_options[:flavor_id] = flavor.id
         end
 
-        # This is somewhat a hack, but Rackspace's API returns '0' for flavors
+        # This is somewhat a hack, but Rackspace's API returns '0'
         # that must be backed by a CBS volume.
         #
         # In the case we are trying to create one of these flavors, we should
@@ -437,11 +442,12 @@ class Chef
 
           if server_create_options[:boot_image_id] && server_create_options[:boot_volume_id]
             ui.error('Please specify exactly one of --boot-volume-id (-B) and --image (-I)')
+            puts __LINE__
             exit 1
           end
-        elsif Chef::Config[:knife][:volume_name] && Chef::Config[:knife][:image]  # create a new volume for the specified image with the specified name
+        elsif Chef::Config[:knife][:volume_name] && locate_config_value(:image)  # create a new volume for the specified image with the specified name
           stdout("\n#{ui.color("Boot from new Block Storage volume", :magenta)}")
-          msg_pair("CBS Source Image:", Chef::Config[:knife][:image])
+          msg_pair("CBS Source Image:", locate_config_value(:image))
           server_create_options[:image_id] = ''
           server_create_options[:boot_volume_id] = create_cbs_volume.id
         else
@@ -449,6 +455,8 @@ class Chef
 
           if !server_create_options[:image_id]
             ui.error('Please specify an Image ID for the server with --image (-I)')
+
+            puts __LINE__
             exit 1
           end
         end
@@ -541,6 +549,14 @@ class Chef
 
         bootstrap_ip_address = ip_address(server, locate_config_value(:bootstrap_network))
 
+        Chef::Log.debug("Bootstrap IP Address #{bootstrap_ip_address}")
+        if bootstrap_ip_address.nil?
+          ui.error("No IP address available for bootstrapping.")
+            puts __LINE__
+          exit 1
+        end
+
+
         if Chef::Config[:knife][:volume_name]
           Chef::Log.debug("Setting up block storage")
           Chef::Log.debug("Volume size: #{Chef::Config[:knife][:volume_size]}")
@@ -555,12 +571,6 @@ class Chef
           new_volume.wait_for(Integer(locate_config_value(:server_create_timeout))) { stdout "."; ready? }
 
           server.attach_volume new_volume.id, (Chef::Config[:knife][:device_name] || '/dev/xvdb')
-        end
-
-        Chef::Log.debug("Bootstrap IP Address #{bootstrap_ip_address}")
-        if bootstrap_ip_address.nil?
-          ui.error("No IP address available for bootstrapping.")
-          exit 1
         end
 
         if locate_config_value(:bootstrap_protocol) == 'winrm'
@@ -618,6 +628,7 @@ class Chef
           content = File.read(filename)
         rescue Errno::ENOENT => e
           ui.error "Unable to read source file - #{filename}"
+            puts __LINE__
           exit 1
         end
         content
@@ -733,12 +744,14 @@ class Chef
             nets << net.id
           else
             ui.error("Failed to locate network: #{name}")
+            puts __LINE__
             exit 1
           end
         end
         nets
       elsif(names && !names.empty?)
         ui.error("Custom networks are only available in v2 API")
+            puts __LINE__
         exit 1
       end
     end

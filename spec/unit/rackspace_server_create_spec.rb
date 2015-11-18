@@ -7,24 +7,29 @@ describe Chef::Knife::RackspaceServerCreate do
   let(:creator) { Chef::Knife::RackspaceServerCreate.new }
   let(:ui) { double(Chef::Knife::UI, error: nil) }
   let(:server_id) { rand(1000) }
+  let(:boot_image_id) { rand(1000) }
   let(:image) {  double('image', name: 'test_image') }
-  let(:flavor) { double('flavor', name: 'test flavor name') }
+  let(:flavor) { double('flavor', name: 'test flavor name', id: 1234) }
   let(:metadata) { double('metadata', all: {}) }
   let(:ip_address) { '10.0.0.0' }
   let(:addresses) { { "public" => [{"version" => 4, "addr" => ip_address}] } }
+  let(:api_username) { 'mitch_hedberg' }
+  let(:api_key) { 'deadpan' }
 
   let(:server) { double('server instance', save: true, id: server_id, host_id: 'test host id', name: 'test name',
                           flavor: flavor, image: image, metadata: metadata, config_drive: '', wait_for: true,
-                          access_ipv4_address: ip_address, addresses: addresses, password: 'test password') }
+                          access_ipv4_address: ip_address, addresses: addresses, password: 'test password',
+                          boot_image_id: boot_image_id) }
   let(:servers) { double('servers resource', new: server) }
-  let(:fog_compute_connection) { double(Fog::Compute, servers: servers) }
+  let(:flavors) { double('flavors resource', get: flavor) }
+  let(:fog_compute_connection) { double(Fog::Compute, servers: servers,
+                                                      flavors: flavors) }
 
   let(:bootstrap_resource) { double(Chef::Knife::Bootstrap, run: true, config: {},
                                       :name_args= => true) }
 
   describe '#run' do
     before do
-
       allow_any_instance_of(Chef::Knife::RackspaceServerCreate).to receive(:tcp_test_ssh).and_return(true)
 
       allow(ui).to receive(:color) { |label| label }
@@ -32,13 +37,15 @@ describe Chef::Knife::RackspaceServerCreate do
       allow(Fog::Compute).to receive(:new).and_return(fog_compute_connection)
       allow(Chef::Knife::Bootstrap).to receive(:new).and_return(bootstrap_resource)
 
+      Chef::Config[:knife][:rackspace_username] = api_username
+      Chef::Config[:knife][:rackspace_api_key] = api_key
       Chef::Config[:knife][:server_create_timeout] = 1200
       Chef::Config[:knife][:rackspace_region] = :dfw
       allow(fog_compute_connection).to receive_message_chain('networks.all').and_return([])
     end
 
     it 'raises a ui error and exits unless image option has been set' do
-      expect(ui).to receive(:error).with(/You have not provided.*image/)
+      expect(ui).to receive(:error).with('Please specify an Image ID for the server with --image (-I)')
 
       Chef::Config[:knife][:image] = nil
 
@@ -106,7 +113,7 @@ describe Chef::Knife::RackspaceServerCreate do
         Chef::Config[:knife][:flavor] = flavor.name
 
         expect(servers).to receive(:new)
-          .with(hash_including(flavor_id: flavor.name))
+          .with(hash_including(flavor_id: flavor.id))
           .and_return(server)
 
         creator.run
@@ -225,8 +232,6 @@ describe Chef::Knife::RackspaceServerCreate do
 
         context 'when a device name is specified' do
           it 'attaches the volume to the specified device name' do
-            Chef::Config[:knife][:image] = nil
-
             device_name = '/dev/xbdc'
 
             Chef::Config[:knife][:device_name] = device_name
@@ -239,9 +244,7 @@ describe Chef::Knife::RackspaceServerCreate do
         end
 
         context 'when no device name is specified' do
-          it 'attaches the bolume to /dev/xvdb' do
-            Chef::Config[:knife][:image] = nil
-
+          it 'attaches the volume to /dev/xvdb' do
             expect(server).to receive(:attach_volume)
               .with(volume.id, '/dev/xvdb')
 

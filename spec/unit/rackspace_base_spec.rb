@@ -9,6 +9,8 @@ end
 
 describe Chef::Knife::RackspaceBase do
   let(:tester) { RackspaceBaseTester.new }
+  let(:api_username) { 'mitch_hedberg' }
+  let(:api_key) { 'deadpan' }
 
   describe "auth_endpoint" do
     it "should select the custom endpoint if specified" do
@@ -158,6 +160,8 @@ describe Chef::Knife::RackspaceBase do
       allow(Chef::Knife::UI).to receive(:new).and_return(ui)
       allow(fog_class).to receive(:new).and_return(fog_connection)
       Chef::Config[:knife][:rackspace_region] = :ord
+      Chef::Config[:knife][:rackspace_username] = api_username
+      Chef::Config[:knife][:rackspace_api_key] = api_key
     end
 
     it_behaves_like "a common fog connection"
@@ -212,6 +216,12 @@ describe Chef::Knife::RackspaceBase do
 
     def fog_class
       Fog::Rackspace::BlockStorage
+    end
+
+    before do
+      Chef::Config[:knife][:rackspace_region] = :ord
+      Chef::Config[:knife][:rackspace_username] = api_username
+      Chef::Config[:knife][:rackspace_api_key] = api_key
     end
 
     it_behaves_like "a common fog connection"

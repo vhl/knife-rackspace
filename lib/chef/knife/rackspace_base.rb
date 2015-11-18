@@ -138,7 +138,7 @@ class Chef
         end
       end
 
-      def connection_params(options={})
+      def common_connection_params(options={})
         unless locate_config_value(:rackspace_region)
           ui.error "Please specify region via the command line using the --rackspace-region switch or add a knife[:rackspace_region] = REGION to your knife file."
           exit 1
